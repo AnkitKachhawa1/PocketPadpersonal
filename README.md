@@ -1,91 +1,246 @@
 # PocketPad 🎮
 
-**Turn your Android phone into a real Bluetooth gamepad** for your Smart TV, tablet, another phone, or PC — with on-screen touch controls *and* passthrough for a PS3 controller plugged into the phone with a USB-C OTG adapter.
+**PocketPad turns an Android phone into a real Bluetooth HID gamepad.**
 
-No app is needed on the other device. PocketPad uses Android's native `BluetoothHidDevice` API to make the phone appear as a standard Bluetooth HID gamepad — exactly like a store-bought controller. Samsung Tizen TVs (like the UN65U7900F) accept standard HID gamepads out of the box, and so does anything else that supports Bluetooth controllers — including the emulators running on those devices (RetroArch and friends see PocketPad as a normal gamepad).
+The phone registers itself with Android's native `BluetoothHidDevice` API as a Bluetooth HID peripheral, so a TV, tablet, another phone, a PC — anything that accepts a Bluetooth controller — pairs with it the same way it would pair with a store-bought gamepad.
+
+**Nothing has to be installed on the receiving device.** There is no companion app, no pairing server, and no proprietary network protocol. The app contains no networking code and requests no `INTERNET` permission: input travels over the Bluetooth HID link and, optionally, over USB from a controller plugged into the phone.
+
+That is the main thing separating PocketPad from most "phone as controller" projects, which stream input to a helper application or a desktop server over Wi-Fi. PocketPad speaks the standard the host already understands.
+
+---
+
+## Contents
+
+- [Install](#install)
+- [Features](#features)
+- [Pairing](#pairing)
+- [Physical controller passthrough](#physical-controller-passthrough)
+- [How it works](#how-it-works)
+- [Architecture](#architecture)
+- [Building](#building)
+- [Compatibility and known limitations](#compatibility-and-known-limitations)
+- [Screenshots / demo](#screenshots--demo)
+- [Docs](#docs)
+- [License](#license)
+
+---
+
+## Install
+
+### Option 1 — download the APK (easiest)
+
+Every push to `main` is built by GitHub Actions and published to the repository's **`latest`** release:
+
+**[→ Download PocketPad.apk](https://github.com/Dathaze20/PocketPad/releases/latest)**
+
+No GitHub login is needed. Tap the APK under **Assets**, then open the download to install.
+
+Because the APK is sideloaded, Android shows a Google Play Protect warning for an app it has not seen before. On the **"App blocked to protect your device"** dialog choose **More details → Install anyway**. Every warning screen, and what to do about the "App not installed" case, is documented in **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+> Builds are signed with the repository's committed debug keystore. That is deliberate: a stable signature means each new build installs as an update over the previous one instead of being rejected. It is a test-signing key only — a Play Store release would use the separate release keystore described in [`app/build.gradle`](app/build.gradle).
+
+### Option 2 — build it yourself
+
+See [Building](#building). Building from source produces the same app; it is the right path if you want to change the code or sign it yourself.
+
+---
 
 ## Features
 
-- **Touch gamepad** — d-pad, △ ○ ✕ □ face buttons, dual analog sticks, L1/L2/R1/R2, L3/R3, Share/Options, and a **central PS/home button** you can press *and hold* just like a real controller. Full multitouch, works in **portrait and landscape**.
-- **Controller styles** — switch skins from the ⚙ menu: **PlayStation (PS4/PS5)**, **Super Nintendo** (X/A/B/Y in SNES colors + L/R + Select/Start), **NES**, and **Game Boy**. Same Bluetooth connection, different pad — perfect for retro emulators.
-- **Strong haptic feedback** — a crisp vibration click on every press (plus ticks when the d-pad direction changes), so the glass feels like buttons. Three levels: Strong / Light / Off.
-- **Connects to anything** — TV, tablet, phone, PC: any Bluetooth HID host. The other device sees a genuine gamepad.
-- **PS3 controller passthrough** — plug a DualShock 3 into the phone via a USB-C OTG adapter and its buttons/sticks are forwarded over Bluetooth. Touch and physical controls work at the same time.
-- **Any Android-recognized controller works too** — controllers that Android exposes as native gamepads (many SNES-style USB pads, Xbox pads, etc.) are forwarded automatically via key/motion events.
-- **Reconnects fast** — remembers the last device and reconnects on launch.
+### Touch controller
 
-## Requirements
+| | |
+|---|---|
+| **Controls** | 8-way d-pad, four face buttons, dual analog sticks, four shoulder buttons/triggers, two stick-click buttons, Select/Start-style pair, and a central Home button |
+| **Multitouch** | Every control is hit-tested independently, so several fingers work at once |
+| **Orientation** | Separate portrait and landscape layouts for each style |
+| **Rendering** | Drawn directly to a `Canvas` — shaded caps with sockets, bevels and press states, a one-piece pivoting d-pad, and domed thumbsticks |
+| **Haptics** | Per-press vibration with **Strong / Light / Off** levels, using the platform's predefined click and tick effects where available |
+| **Safe area** | Controls and the status pill lay out inside the display cutout and system-bar insets |
 
-- **Phone:** Android 9 (Pie) or newer with Bluetooth. Tested target: Samsung Galaxy A16 5G (One UI, Android 14+/16). *Note:* the phone's Bluetooth stack must support the HID Device profile — virtually all Samsung Galaxy phones do.
-- **TV:** any TV/host that accepts Bluetooth HID gamepads. Samsung Tizen Smart TVs (2018+) do, including the U7900F series.
-- **For PS3 passthrough:** a USB-C OTG adapter/cable and a DualShock 3.
+### Controller styles
 
-## Pairing with your Samsung TV
+Five styles, switchable from the ⚙ menu. Every style drives the **same** HID report — face buttons are mapped positionally (bottom / right / left / top), which is the order hosts read regardless of the labels printed on a pad. Switching style changes what you see, never what the host receives.
 
-1. Open PocketPad, allow the Bluetooth permissions, tap the **⚙ gear** → **Make phone discoverable**.
-2. On the TV: **Settings → Connection → External Device Manager → Input Device Manager → Bluetooth Device List** (on some models: **Settings → Sound → Bluetooth Device List**).
-3. Select the device named after your phone and confirm pairing on both screens.
-4. Done — the status pill at the top shows **Connected**. Next time, use **⚙ → Connect to a paired device** to reconnect instantly.
+| Style | Labels |
+|---|---|
+| **PlayStation (PS4 / PS5)** | △ ○ ✕ □, L1/L2/R1/R2, L3/R3, SHARE / OPTIONS / PS |
+| **Xbox** | A / B / X / Y, LB/LT/RB/RT, LS/RS, VIEW / MENU — with the offset Xbox stick-and-d-pad arrangement |
+| **Super Nintendo** | X / A / B / Y in SNES colours, L / R, SELECT / START |
+| **NES** | B / A, SELECT / START |
+| **Game Boy** | B / A on the diagonal, SELECT / START |
 
-## Installing on your phone
+### Customisation
 
-**[Download the newest APK →](https://github.com/Dathaze20/PocketPad/releases/latest)** (tap `PocketPad.apk`, no login needed)
+- **Move buttons** — drag any control anywhere on screen, then **Save**. Layouts are stored **per style and per orientation**, so a custom landscape PlayStation layout does not disturb the portrait one. **Default** restores the built-in layout; **Cancel** discards edits.
+- **Background picture** — pick any image through Android's system photo picker (no storage permission required). The image is copied into app storage, downsampled to roughly screen resolution before decoding, then drawn *beneath* the controls with a dark scrim between, so no photo can obscure a button. Drag to frame it; the framing is remembered.
+- **Vibration level** — Strong / Light / Off.
+- **TV menu keys** — an opt-in mode, **off by default**, in which the pad additionally sends keyboard keys (arrows, Enter, Escape) so it can drive a TV's menus. It is off by default because while a game is running those keys are duplicate input, and Escape is read as "quit" by some clients.
 
-Android will warn that the app is from an unknown developer — that's Play Protect doing its job on any sideloaded app. On the **"App blocked to protect your device"** dialog, tap **More details → Install anyway**. Full walkthrough of every warning screen: **[docs/INSTALL.md](docs/INSTALL.md)**.
+### Connection
 
-## First-run test plan
+- **Long-press Home** to enter pairing mode without opening a menu.
+- A **status ring** around the Home button shows link state: dim when idle, pulsing while the phone is discoverable, solid green when connected. A status pill at the top of the screen shows the same in words.
+- **Reconnect** — the last connected device's address is saved and reconnected on launch.
+- **Paired-device picker** — reconnect to any bonded device from a list.
 
-Compilation is verified by CI on every push, but Bluetooth pairing can only be proven on real hardware. First time out, check these in order:
+---
 
-1. Open the app → allow Bluetooth permissions → status pill should read **"Gamepad ready — waiting for TV"**. If it says Bluetooth is off, turn it on and reopen.
-2. Pair from the TV (steps below) → pill turns **"Connected to …"**.
-3. Open a game or the TV's Gaming Hub and press buttons. If the TV pairs but ignores input, try un-pairing and re-pairing from the TV's *Input Device Manager* list specifically (not the audio device list).
-4. For emulators: open the emulator's controller settings and map buttons — PocketPad appears as a standard gamepad.
+## Pairing
 
-If any step fails, note exactly what the status pill says — that pinpoints where it broke.
+PocketPad is the *peripheral*. Like any controller, the host discovers it — you do not connect outward from the phone.
 
-## Using the PS3 controller
+1. In PocketPad, **long-press the Home button** (or ⚙ → *Make phone discoverable*) and accept Android's prompt to make the phone visible.
+2. On the host, open its Bluetooth **input device** list and select your phone.
+   On a Samsung Tizen TV that is **Settings → Connection → External Device Manager → Input Device Manager → Bluetooth Device List**. Use the input-device list, not the audio/sound Bluetooth list — that one is for speakers and headphones.
+3. Confirm on both screens. The status pill reads **Connected**.
 
-1. Plug the DualShock 3 into your phone with a USB-C OTG adapter.
-2. Android will offer to open PocketPad automatically (the app registers for the DS3's USB vendor/product ID). Grant USB access if asked.
-3. Play. The DS3's inputs are merged with the touch controls — whichever is actively pressed wins.
+Afterwards, ⚙ → *Connect to a paired device* reconnects without re-pairing.
 
-> The DS3 is quirky over USB: it stays silent until it receives a special HID "enable" command. PocketPad sends that automatically. On phones whose kernel already recognizes the DS3 as a gamepad, input arrives through Android's normal gamepad events instead — both paths are handled.
+---
 
-## Project layout
+## Physical controller passthrough
+
+PocketPad can forward a controller plugged into the phone, so the phone acts as a bridge to the host. Touch input and physical input are merged, not switched between — buttons are OR-ed together, the hat and each stick take whichever source is actually deflected, and each trigger takes the larger of the two values.
+
+### DualShock 3 (PS3) over USB OTG
+
+A dedicated USB-host driver handles the DualShock 3 (`0x054C` / `0x0268`) directly:
+
+- Claims the controller's HID interface and locates its interrupt IN endpoint.
+- Sends the DS3's **"enable operational mode"** control transfer (`SET_REPORT`, feature report `0xF4`, payload `42 0C 00 00`). Without this the DS3 stays silent over USB — it reports nothing until asked.
+- Parses the input report: digital buttons, the d-pad, both sticks, and the DS3's **analog trigger pressure** (report bytes 18–19), falling back to digital values on short reports.
+- Requests USB permission when needed, and releases the interface immediately on a detach broadcast rather than waiting for read timeouts.
+- The app registers the DS3's vendor/product ID in its manifest, so Android can offer to launch PocketPad when the controller is plugged in.
+
+> Some Android builds bind the DS3 with the kernel's own driver and expose it as an ordinary gamepad. In that case the raw driver is never opened and input arrives through the path below instead. Both paths are implemented.
+
+### Other Android-recognised controllers
+
+Controllers that Android exposes as native gamepads are forwarded through `KeyEvent` and `MotionEvent`: face buttons, bumpers, triggers, stick clicks, Select/Start/Mode, both sticks, and the hat axes. Analog trigger values are read from the platform's trigger/brake/gas axes and forwarded as analog values rather than being flattened to on/off.
+
+---
+
+## How it works
+
+The phone takes the **HID Device (peripheral)** role through `BluetoothHidDevice`, which Android has exposed since API 28. The host sees a standard HID controller and needs no software of its own.
+
+**Registration and SDP.** On start the app acquires the `HID_DEVICE` profile proxy and registers an SDP record carrying the device name, description, provider, a device subclass, and the HID report descriptor. The subclass advertised is `SUBCLASS1_COMBO` — the class off-the-shelf controllers and remotes report. This matters in practice: hosts filter their input-device lists by that byte, and some firmware skips a device that does not present a class it recognises.
+
+**Report descriptor.** A single composite descriptor declares two top-level collections:
+
+| Report | Contents | Size |
+|---|---|---|
+| **ID 1 — Gamepad** | 16 buttons; 8-way hat switch with null state; four 8-bit axes (X, Y, Z, Rz); two 8-bit analog triggers declared as **Brake** and **Accelerator** on the Simulation Controls page | 9 bytes |
+| **ID 2 — Keyboard** | Standard boot-style keyboard: modifier byte, reserved byte, six key slots | 8 bytes |
+
+Thirteen buttons are mapped in the standard gamepad order — A/B/X/Y, bumpers, triggers, View, Menu, both stick clicks, then Guide. Analog triggers exist because a digital button is not enough for anything that reads a throttle.
+
+The keyboard collection serves two purposes: it lets the pad drive a host's menus as arrow keys when the user opts in, and it gives hosts that ignore a bare gamepad a familiar profile to enumerate.
+
+**Quality of service.** Registration requests a low-latency QoS profile (best-effort service with a small token bucket and a tight latency budget) rather than accepting the default.
+
+**Report transmission.** Input reports are sent on state change only — an identical back-to-back report is dropped, for both the gamepad and keyboard collections, so the radio carries changes rather than a constant stream. Presses are transmitted *before* haptics fire, since the vibrator call does not return instantly. When the host polls with a Get_Report the app replies with a neutral report so the host never stalls, and Set_Report is acknowledged.
+
+**Connection management.** The profile is exclusive: another app taking the HID Device role knocks PocketPad out. When registration is reported lost, the app schedules a backed-off re-registration (up to a bounded number of attempts) instead of stranding the user with a dead pad, and returning to the app also triggers recovery. Disconnects clear the cached report state so the next connection starts clean.
+
+**Lifecycle and permissions.** `BLUETOOTH_CONNECT` and `BLUETOOTH_ADVERTISE` are requested at runtime on Android 12+; the legacy Bluetooth permissions are capped at API 30 in the manifest. Every permission-guarded Bluetooth call is wrapped, so a revoked permission surfaces as a status message rather than a crash. Bluetooth being off at launch is recoverable — the app retries when you return to it. The discoverability prompt's result is checked, so the pairing indicator reflects what the system actually granted rather than assuming the user accepted.
+
+**Input integrity.** Android reuses pointer IDs, so a control still holding an incoming ID is released before the ID is reassigned; the last finger lifting releases everything; and losing window focus mid-press (notification shade, incoming call) releases held controls. Without these a button could stay transmitted as held indefinitely.
+
+---
+
+## Architecture
 
 ```
 app/src/main/java/com/dathaze/pocketpad/
-├── MainActivity.kt          # UI glue, permissions, physical-controller input, merging
+├── MainActivity.kt            # Wiring: settings menu, permissions, photo picker,
+│                              # native-controller events, touch/physical merge
 ├── hid/
-│   ├── HidConstants.kt      # HID gamepad report descriptor + button mapping
-│   ├── GamepadState.kt      # 7-byte input report model + touch/USB merge logic
-│   └── HidGamepadManager.kt # BluetoothHidDevice registration, connect, sendReport
+│   ├── HidConstants.kt        # Composite HID report descriptor, button map, key codes
+│   ├── GamepadState.kt        # 9-byte report model + merge rules
+│   └── HidGamepadManager.kt   # BluetoothHidDevice: registration, SDP, QoS, connection
+│                              # lifecycle, re-registration recovery, report sending
 ├── usb/
-│   └── Ds3UsbDriver.kt      # Raw USB host driver for the DualShock 3 (OTG)
+│   └── Ds3UsbDriver.kt        # USB-host driver for the DualShock 3
 └── ui/
-    ├── ControllerView.kt    # Multitouch on-screen gamepad, 4 skins (portrait + landscape)
-    └── Haptics.kt           # Vibration feedback engine (strong/light/off)
+    ├── ControllerView.kt      # Canvas gamepad: 5 styles, layout editor, backgrounds
+    └── Haptics.kt             # Vibration levels
 ```
+
+Input flows one way:
+
+```
+touch  ─┐
+        ├─→ merge ─→ GamepadState ─→ 9-byte report ─→ BluetoothHidDevice ─→ host
+USB/native pad ─┘
+```
+
+---
 
 ## Building
 
-Open the project in Android Studio (Ladybug or newer) and press Run, or:
+Requires JDK 17. The project builds with Android Gradle Plugin 8.13.0, Kotlin 2.2.20 and Gradle 8.14.3 (via the wrapper); `compileSdk`/`targetSdk` are 36 and `minSdk` is 28.
 
 ```bash
-./gradlew assembleDebug     # debug APK → app/build/outputs/apk/debug/
-./gradlew bundleRelease     # Play Store bundle (configure signing first)
+./gradlew assembleDebug     # debug APK  → app/build/outputs/apk/debug/
+./gradlew bundleRelease     # release AAB → app/build/outputs/bundle/release/
 ```
 
-See **[docs/PLAY_STORE_CHECKLIST.md](docs/PLAY_STORE_CHECKLIST.md)** for the step-by-step guide to publishing on Google Play (signing, listing, data-safety answers, etc.).
+Release builds are minified and resource-shrunk. They are signed only if you supply `POCKETPAD_STORE_FILE`, `POCKETPAD_STORE_PASSWORD`, `POCKETPAD_KEY_ALIAS` and `POCKETPAD_KEY_PASSWORD` in `~/.gradle/gradle.properties` (never in the repository); otherwise the release bundle is produced unsigned.
 
-## Troubleshooting
+**Continuous integration.** [`.github/workflows/android.yml`](.github/workflows/android.yml) runs on every push and pull request: it builds the debug APK and the release bundle, uploads both as workflow artifacts, and — on `main` — republishes the APK to the `latest` GitHub release.
 
-- **TV pairs but nothing happens:** make sure you paired from the TV's *Bluetooth Device List / Input Device Manager*, not the audio-device menu.
-- **"Bluetooth is off"**: enable Bluetooth, then reopen the app.
-- **DS3 not detected:** try a powered OTG adapter (the DS3 draws bus power), and check the cable supports data, not just charging.
-- **Game doesn't react on the TV:** not every Tizen app accepts gamepads — try the TV's Gaming Hub or an app that explicitly supports controllers.
-- **Latency:** keep the phone within a few meters of the TV; Bluetooth input latency is typically 15–40 ms.
+Publishing to Google Play is documented step by step in **[docs/PLAY_STORE_CHECKLIST.md](docs/PLAY_STORE_CHECKLIST.md)**.
+
+---
+
+## Compatibility and known limitations
+
+**Requirements**
+
+- **Android 9 (API 28) or newer.** `BluetoothHidDevice` does not exist before that, which sets the floor.
+- A phone whose Bluetooth stack actually implements the **HID Device** profile. The API is standard, but support is ultimately up to the OEM's stack, so this is worth confirming on an unfamiliar device.
+- A host that accepts standard Bluetooth HID controllers.
+- USB passthrough additionally needs a **data-capable** USB-C OTG adapter; charge-only cables will not work, and the DualShock 3 draws bus power.
+
+**Limitations to be aware of**
+
+- **Pair from the host's input-device list.** Selecting the phone from an audio/Bluetooth-speaker menu attempts the wrong kind of connection.
+- **Hosts cache a controller's capabilities at pairing time.** After an update that changes the HID descriptor — analog triggers were added in 2.2 — an already-paired host must be un-paired and paired again before it sees the new capabilities.
+- **The Bluetooth HID Device role is exclusive.** Another app claiming it will drop PocketPad's registration; the app re-registers automatically, but only one HID-device app can hold the role at a time.
+- **Not every host application accepts gamepad input**, even when the pairing itself succeeds.
+- **TV menu keys are off by default** and should stay off while playing: with them on, ✕/A also sends Enter and ○/B also sends Escape, which some clients read as a request to quit.
+- **Sideloaded installs trigger Play Protect**, and builds signed with a different key than an existing install cannot replace it — see [docs/INSTALL.md](docs/INSTALL.md).
+- **Bluetooth input latency depends on the host, the radio environment and distance.** No timing figures are claimed here because none have been measured for this project.
+- Hardware behaviour — pairing, per-game input handling, USB OTG — can only be confirmed on real devices. Continuous integration proves the project compiles, not that a given TV will accept it.
+
+**Privacy.** The app collects nothing and has no network access. See [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md).
+
+---
+
+## Screenshots / demo
+
+> **None are committed to this repository yet.** No image files are tracked, so rather than link to files that do not exist, here are the three visuals worth capturing — in priority order.
+
+1. **The landscape controller UI on the phone.** The single most convincing image: the shaded caps, one-piece d-pad and domed sticks are the app's most distinctive visual work and are invisible in a text description. Capture in the PlayStation style, landscape, with the status pill reading *Connected*.
+2. **The phone controlling a real host.** A short clip or photo of the phone in hand with a game responding on the TV. This is the claim everything else rests on — that a host accepts it as an ordinary controller — and it is the one thing a screenshot of the app alone cannot demonstrate.
+3. **Either the style selector or the customisation in use.** The five styles side by side (PlayStation / Xbox / SNES / NES / Game Boy) shows breadth in one frame; alternatively the layout editor mid-drag, or a DualShock 3 plugged into the phone over OTG with both inputs live, shows the engineering that is otherwise hidden.
+
+A short screen recording of pairing — long-press Home, ring pulses, host connects, ring turns green — would also carry more than a still image, if you record only one thing.
+
+---
+
+## Docs
+
+| Document | Contents |
+|---|---|
+| [docs/INSTALL.md](docs/INSTALL.md) | Sideloading: Play Protect, signature mismatches, unknown-sources permission |
+| [docs/PLAY_STORE_CHECKLIST.md](docs/PLAY_STORE_CHECKLIST.md) | Signing, store listing, data-safety answers, rollout |
+| [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md) | Ready-to-publish policy — no data collected |
+
+---
 
 ## License
 
