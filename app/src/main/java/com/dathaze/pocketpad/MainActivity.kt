@@ -27,13 +27,13 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.dathaze.pocketpad.hid.DpadMode
 import com.dathaze.pocketpad.hid.GamepadState
 import com.dathaze.pocketpad.hid.HidConstants
 import com.dathaze.pocketpad.hid.HidGamepadManager
 import com.dathaze.pocketpad.ui.ControllerView
 import com.dathaze.pocketpad.ui.Haptics
 import com.dathaze.pocketpad.usb.Ds3UsbDriver
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity(),
@@ -57,6 +57,12 @@ class MainActivity : AppCompatActivity(),
     /** State fed by a physical controller (native events or the raw DS3 driver). */
     private val externalState = GamepadState()
     private val mergedState = GamepadState()
+    /** What is actually transmitted: [mergedState] after the optional d-pad→stick overlay. */
+    private val outState = GamepadState()
+    private var dpadMode = DpadMode.OFF
+    /** D-pad reported as a hat axis (-1/0/+1), tracked apart from key-based d-pads so release clears it. */
+    private var hatAxisX = 0
+    private var hatAxisY = 0
 
     // D-pad key tracking for physical controllers that report keys, not a hat axis.
     private var extUp = false
@@ -231,6 +237,11 @@ class MainActivity : AppCompatActivity(),
             else -> Haptics.Level.STRONG
         }
         tvNavigation = prefs.getBoolean(PREF_TV_NAV, false)
+        dpadMode = try {
+            DpadMode.valueOf(prefs.getString(PREF_DPAD_MODE, DpadMode.OFF.name)!!)
+        } catch (_: IllegalArgumentException) {
+            DpadMode.OFF
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -245,6 +256,7 @@ class MainActivity : AppCompatActivity(),
             getString(
                 if (tvNavigation) R.string.action_tv_nav_on else R.string.action_tv_nav_off
             ),
+            getString(R.string.action_dpad_stick),
             getString(R.string.action_bt_settings),
             getString(R.string.action_disconnect),
             getString(R.string.action_help)
@@ -260,9 +272,10 @@ class MainActivity : AppCompatActivity(),
                     4 -> showBackgroundMenu()
                     5 -> showHapticsPicker()
                     6 -> toggleTvNavigation()
-                    7 -> startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
-                    8 -> hidManager.disconnect()
-                    9 -> showHelp()
+                    7 -> showDpadModePicker()
+                    8 -> startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+                    9 -> hidManager.disconnect()
+                    10 -> showHelp()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -390,6 +403,25 @@ class MainActivity : AppCompatActivity(),
             if (tvNavigation) R.string.tv_nav_enabled else R.string.tv_nav_disabled,
             Toast.LENGTH_SHORT
         ).show()
+    }
+
+    private fun showDpadModePicker() {
+        val modes = DpadMode.values()
+        val labels = arrayOf(
+            getString(R.string.dpad_mode_off),
+            getString(R.string.dpad_mode_both),
+            getString(R.string.dpad_mode_stick_only)
+        )
+        AlertDialog.Builder(this)
+            .setTitle(R.string.action_dpad_stick)
+            .setSingleChoiceItems(labels, modes.indexOf(dpadMode)) { dialog, which ->
+                dpadMode = modes[which]
+                getPreferences(MODE_PRIVATE).edit().putString(PREF_DPAD_MODE, dpadMode.name).apply()
+                sendMerged()
+                dialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun showSkinPicker() {
@@ -530,7 +562,8 @@ class MainActivity : AppCompatActivity(),
         // The view can emit state before onCreate finishes wiring things up.
         if (!::hidManager.isInitialized) return
         GamepadState.merge(controllerView.touchState, externalState, mergedState)
-        hidManager.send(mergedState)
+        GamepadState.applyDpadMode(mergedState, outState, dpadMode)
+        hidManager.send(outState)
         if (tvNavigation) hidManager.sendKey(navKeyFor(mergedState))
     }
 
@@ -619,15 +652,9 @@ class MainActivity : AppCompatActivity(),
 
             val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
             val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
-            if (abs(hatX) > 0.5f || abs(hatY) > 0.5f || (extUp || extDown || extLeft || extRight)) {
-                if (abs(hatX) > 0.5f || abs(hatY) > 0.5f) {
-                    extLeft = hatX < -0.5f
-                    extRight = hatX > 0.5f
-                    extUp = hatY < -0.5f
-                    extDown = hatY > 0.5f
-                }
-                updateExternalHat()
-            }
+            hatAxisX = if (hatX < -0.5f) -1 else if (hatX > 0.5f) 1 else 0
+            hatAxisY = if (hatY < -0.5f) -1 else if (hatY > 0.5f) 1 else 0
+            updateExternalHat()
 
             val lt = maxOf(
                 event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
@@ -651,15 +678,19 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun updateExternalHat() {
+        val up = extUp || hatAxisY < 0
+        val down = extDown || hatAxisY > 0
+        val left = extLeft || hatAxisX < 0
+        val right = extRight || hatAxisX > 0
         externalState.hat = when {
-            extUp && extRight -> 1
-            extRight && extDown -> 3
-            extDown && extLeft -> 5
-            extLeft && extUp -> 7
-            extUp -> 0
-            extRight -> 2
-            extDown -> 4
-            extLeft -> 6
+            up && right -> 1
+            right && down -> 3
+            down && left -> 5
+            left && up -> 7
+            up -> 0
+            right -> 2
+            down -> 4
+            left -> 6
             else -> HidConstants.HAT_NEUTRAL
         }
     }
@@ -694,6 +725,7 @@ class MainActivity : AppCompatActivity(),
         if (!connected) {
             externalState.reset()
             extUp = false; extDown = false; extLeft = false; extRight = false
+            hatAxisX = 0; hatAxisY = 0
             sendMerged()
         }
     }
@@ -741,6 +773,7 @@ class MainActivity : AppCompatActivity(),
     private companion object {
         const val REQUEST_BLUETOOTH = 101
         const val PREF_TV_NAV = "tv_navigation"
+        const val PREF_DPAD_MODE = "dpad_mode"
         const val PREF_BG_X = "background_pan_x"
         const val PREF_BG_Y = "background_pan_y"
         const val PREF_LAST_DEVICE = "last_device_address"
