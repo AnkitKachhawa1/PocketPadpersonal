@@ -5,6 +5,16 @@ package com.dathaze.pocketpad.hid
  * Axes are 0..255 with 128 as center. Hat is 0..7 clockwise from up,
  * [HidConstants.HAT_NEUTRAL] when released.
  */
+/** How the hat (d-pad) is presented to the host. */
+enum class DpadMode {
+    /** Hat only (original behaviour). */
+    OFF,
+    /** Hat is sent AND mirrored onto the left stick. */
+    STICK_AND_HAT,
+    /** Hat is mirrored onto the left stick and the hat itself is neutralised. */
+    STICK_ONLY
+}
+
 class GamepadState {
     var buttons: Int = 0
     var hat: Int = HidConstants.HAT_NEUTRAL
@@ -66,6 +76,31 @@ class GamepadState {
             // Whichever source is pushing the trigger harder wins.
             out.lt = maxOf(touch.lt, external.lt)
             out.rt = maxOf(touch.rt, external.rt)
+        }
+
+        // Diagonal d-pad stick values: 128 +/- 90 (~0.707 of full throw) keeps the
+        // vector inside a circular gate. Set to 0 / 255 for full-corner output.
+        private const val DIAG_LO = 38
+        private const val DIAG_HI = 218
+
+        /**
+         * Copy [src] into [out], optionally mirroring the hat onto the LEFT stick.
+         * [src] is never modified, so the real stick values are untouched. When
+         * the hat is released, [out] simply equals [src] (physical stick or neutral).
+         * Per axis, whichever of d-pad / physical stick is deflected further wins.
+         * Axis convention matches the descriptor and the touch stick: Y 0 = up, 255 = down.
+         */
+        fun applyDpadMode(src: GamepadState, out: GamepadState, mode: DpadMode) {
+            out.copyFrom(src)
+            if (mode == DpadMode.OFF || src.hat !in 0..7) return
+            val dx = when (src.hat) { 1, 2, 3 -> 1; 5, 6, 7 -> -1; else -> 0 }
+            val dy = when (src.hat) { 7, 0, 1 -> -1; 3, 4, 5 -> 1; else -> 0 }
+            val diag = dx != 0 && dy != 0
+            val lo = if (diag) DIAG_LO else 0
+            val hi = if (diag) DIAG_HI else 255
+            if (dx != 0) out.lx = pickAxis(if (dx < 0) lo else hi, src.lx)
+            if (dy != 0) out.ly = pickAxis(if (dy < 0) lo else hi, src.ly)
+            if (mode == DpadMode.STICK_ONLY) out.hat = HidConstants.HAT_NEUTRAL
         }
 
         private fun pickAxis(external: Int, touch: Int): Int {
