@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity(),
     private val externalState = GamepadState()
     private val mergedState = GamepadState()
     private val recorder = InputRecorder()
+    private var padFix = true
     /** What is actually transmitted: [mergedState] after the optional d-pad→stick overlay. */
     private val outState = GamepadState()
     private var dpadMode = DpadMode.OFF
@@ -242,6 +243,7 @@ class MainActivity : AppCompatActivity(),
             else -> Haptics.Level.STRONG
         }
         tvNavigation = prefs.getBoolean(PREF_TV_NAV, false)
+        padFix = prefs.getBoolean(PREF_PAD_FIX, true)
         dpadMode = try {
             DpadMode.valueOf(prefs.getString(PREF_DPAD_MODE, DpadMode.OFF.name)!!)
         } catch (_: IllegalArgumentException) {
@@ -262,6 +264,7 @@ class MainActivity : AppCompatActivity(),
                 if (tvNavigation) R.string.action_tv_nav_on else R.string.action_tv_nav_off
             ),
             getString(R.string.action_dpad_stick),
+            getString(if (padFix) R.string.action_pad_fix_on else R.string.action_pad_fix_off),
             getString(
                 if (recorder.isRecording) R.string.action_record_stop else R.string.action_record_start
             ),
@@ -281,10 +284,11 @@ class MainActivity : AppCompatActivity(),
                     5 -> showHapticsPicker()
                     6 -> toggleTvNavigation()
                     7 -> showDpadModePicker()
-                    8 -> toggleRecording()
-                    9 -> startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
-                    10 -> hidManager.disconnect()
-                    11 -> showHelp()
+                    8 -> togglePadFix()
+                    9 -> toggleRecording()
+                    10 -> startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+                    11 -> hidManager.disconnect()
+                    12 -> showHelp()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -401,6 +405,16 @@ class MainActivity : AppCompatActivity(),
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun togglePadFix() {
+        padFix = !padFix
+        getPreferences(MODE_PRIVATE).edit().putBoolean(PREF_PAD_FIX, padFix).apply()
+        Toast.makeText(
+            this,
+            if (padFix) R.string.pad_fix_enabled else R.string.pad_fix_disabled,
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun toggleTvNavigation() {
@@ -602,12 +616,12 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (isGamepadEvent(event) && handleGamepadKey(keyCode, pressed = true)) return true
+        if (isGamepadEvent(event) && handleGamepadKey(keyCode, pressed = true, event = event)) return true
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (isGamepadEvent(event) && handleGamepadKey(keyCode, pressed = false)) return true
+        if (isGamepadEvent(event) && handleGamepadKey(keyCode, pressed = false, event = event)) return true
         return super.onKeyUp(keyCode, event)
     }
 
@@ -628,8 +642,22 @@ class MainActivity : AppCompatActivity(),
         else -> -1
     }
 
-    private fun handleGamepadKey(keyCode: Int, pressed: Boolean): Boolean {
-        val buttonIndex = hidButtonForKey(keyCode)
+    /**
+     * Gasia / GreenAsia PlayStation-style pads (USB vendor 0x0e8f) list their buttons in
+     * the order x360ce shows as buttons 1..12. Android hands those out as BUTTON_A, B, C, X, Y, Z…
+     * (or BUTTON_1…12), which is not the Xbox layout. The raw Linux scan code always ends in
+     * the same button number (0x130 + n, 0x120 + n or 0x100 + n), so map by that instead.
+     */
+    private fun hidButtonForEvent(event: KeyEvent): Int {
+        if (padFix && event.device?.vendorId == VENDOR_GASIA && event.scanCode in 0x100..0x13F) {
+            val i = event.scanCode and 0xF
+            if (i < GASIA_BUTTONS.size) return GASIA_BUTTONS[i]
+        }
+        return hidButtonForKey(event.keyCode)
+    }
+
+    private fun handleGamepadKey(keyCode: Int, pressed: Boolean, event: KeyEvent): Boolean {
+        val buttonIndex = hidButtonForEvent(event)
         if (buttonIndex >= 0) {
             externalState.setButton(buttonIndex, pressed)
             // Controllers that report triggers as plain keys still need the
@@ -639,7 +667,7 @@ class MainActivity : AppCompatActivity(),
                 HidConstants.BTN_R2 -> externalState.rt = if (pressed) 255 else 0
             }
             reportInput(
-                "${keyName(keyCode)} ${if (pressed) "pressed" else "released"} → " +
+                "${keyName(keyCode)} scan=${event.scanCode} ${if (pressed) "pressed" else "released"} → " +
                     "HID button ${buttonIndex + 1} (${BUTTON_NAMES[buttonIndex]})"
             )
             sendMerged()
@@ -652,12 +680,12 @@ class MainActivity : AppCompatActivity(),
             KeyEvent.KEYCODE_DPAD_RIGHT -> extRight = pressed
             else -> {
                 reportInput(
-                    "${keyName(keyCode)} ${if (pressed) "pressed" else "released"} → NOT MAPPED (ignored)"
+                    "${keyName(keyCode)} scan=${event.scanCode} ${if (pressed) "pressed" else "released"} → NOT MAPPED (ignored)"
                 )
                 return false
             }
         }
-        reportInput("${keyName(keyCode)} ${if (pressed) "pressed" else "released"} → D-pad")
+        reportInput("${keyName(keyCode)} scan=${event.scanCode} ${if (pressed) "pressed" else "released"} → D-pad")
         updateExternalHat()
         sendMerged()
         return true
@@ -667,7 +695,7 @@ class MainActivity : AppCompatActivity(),
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (recorder.isRecording) {
-            recorder.onKey(event, currentMappingLabel(event.keyCode))
+            recorder.onKey(event, currentMappingLabel(event))
             updateRecordingBanner()
         }
         return super.dispatchKeyEvent(event)
@@ -681,11 +709,11 @@ class MainActivity : AppCompatActivity(),
         return super.dispatchGenericMotionEvent(ev)
     }
 
-    private fun currentMappingLabel(keyCode: Int): String {
-        val idx = hidButtonForKey(keyCode)
+    private fun currentMappingLabel(event: KeyEvent): String {
+        val idx = hidButtonForEvent(event)
         return when {
             idx >= 0 -> "HID button ${idx + 1} (${BUTTON_NAMES[idx]})"
-            keyCode in KeyEvent.KEYCODE_DPAD_UP..KeyEvent.KEYCODE_DPAD_RIGHT -> "D-pad"
+            event.keyCode in KeyEvent.KEYCODE_DPAD_UP..KeyEvent.KEYCODE_DPAD_RIGHT -> "D-pad"
             else -> "NOT MAPPED"
         }
     }
@@ -901,6 +929,16 @@ class MainActivity : AppCompatActivity(),
         const val REQUEST_BLUETOOTH = 101
         const val PREF_TV_NAV = "tv_navigation"
         const val PREF_DPAD_MODE = "dpad_mode"
+        const val PREF_PAD_FIX = "pad_fix_gasia"
+        const val VENDOR_GASIA = 0x0e8f
+        // Pad button 1..12 (raw order) -> PocketPad button, from the x360ce preset:
+        // 1 Y, 2 B, 3 A, 4 X, 5 LB, 6 RB, 7 LT, 8 RT, 9 Back, 10 Start, 11 L3, 12 R3
+        val GASIA_BUTTONS = intArrayOf(
+            HidConstants.BTN_TRIANGLE, HidConstants.BTN_CIRCLE, HidConstants.BTN_CROSS,
+            HidConstants.BTN_SQUARE, HidConstants.BTN_L1, HidConstants.BTN_R1,
+            HidConstants.BTN_L2, HidConstants.BTN_R2, HidConstants.BTN_SHARE,
+            HidConstants.BTN_OPTIONS, HidConstants.BTN_L3, HidConstants.BTN_R3
+        )
         val BUTTON_NAMES = arrayOf(
             "A/✕", "B/○", "X/□", "Y/△", "LB/L1", "RB/R1", "LT/L2", "RT/R2",
             "View", "Menu", "L3", "R3", "Guide"
