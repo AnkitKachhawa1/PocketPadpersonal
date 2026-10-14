@@ -47,9 +47,11 @@ class GamepadState {
     }
 
     /** Serialize to the 9-byte HID input report payload. */
-    fun toReport(): ByteArray = byteArrayOf(
-        (buttons and 0xFF).toByte(),
-        ((buttons shr 8) and 0xFF).toByte(),
+    fun toReport(): ByteArray {
+        val bits = if (tvLayout) toTvBits(buttons) else buttons
+        return byteArrayOf(
+        (bits and 0xFF).toByte(),
+        ((bits shr 8) and 0xFF).toByte(),
         (hat and 0x0F).toByte(),
         (lx and 0xFF).toByte(),
         (ly and 0xFF).toByte(),
@@ -57,9 +59,45 @@ class GamepadState {
         (ry and 0xFF).toByte(),
         (lt and 0xFF).toByte(),
         (rt and 0xFF).toByte()
-    )
+        )
+    }
 
     companion object {
+        /**
+         * When true, buttons are placed in the slots Samsung TVs expect. Linux turns HID
+         * button n into driver code 0x12F + n, and Samsung's gamepad service only knows
+         * the Xbox/xpad codes (0x130 A, 0x131 B, 0x133 X, 0x134 Y, 0x136 LB, 0x137 RB,
+         * 0x13a Select, 0x13b Start, 0x13c Home, 0x13d L3, 0x13e R3). The descriptor is
+         * unchanged; only the order of the bits in the report changes.
+         */
+        @Volatile
+        var tvLayout = true
+
+        // PocketPad button index -> bit (0-based) in the 16-bit button field.
+        private val TV_BIT = intArrayOf(
+            0,   // A / Cross      -> 0x130
+            1,   // B / Circle     -> 0x131
+            3,   // X / Square     -> 0x133
+            4,   // Y / Triangle   -> 0x134
+            6,   // LB / L1        -> 0x136
+            7,   // RB / R1        -> 0x137
+            8,   // L2 digital     -> 0x138 (ignored by the TV; the trigger axis carries LT)
+            9,   // R2 digital     -> 0x139 (ignored by the TV; the trigger axis carries RT)
+            10,  // View / Back    -> 0x13a Select
+            11,  // Menu / Start   -> 0x13b Start
+            13,  // L3             -> 0x13d
+            14,  // R3             -> 0x13e
+            12   // Guide          -> 0x13c Home
+        )
+
+        private fun toTvBits(b: Int): Int {
+            var out = 0
+            for (i in TV_BIT.indices) {
+                if ((b shr i) and 1 == 1) out = out or (1 shl TV_BIT[i])
+            }
+            return out
+        }
+
         /**
          * Merge touch input with an external (USB) controller into [out].
          * Buttons are OR-ed; for the hat and each stick, whichever source is
