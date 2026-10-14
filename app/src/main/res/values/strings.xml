@@ -54,6 +54,10 @@
     <string name="action_pad_fix_off">Pad button fix (Gasia 0e8f): OFF — tap to turn ON</string>
     <string name="pad_fix_enabled">Pad button fix on — your Gasia pad now uses the x360ce layout</string>
     <string name="pad_fix_disabled">Pad button fix off — standard Android button names</string>
+    <string name="action_tv_layout_on">TV button layout (Samsung): ON — tap to turn OFF</string>
+    <string name="action_tv_layout_off">TV button layout (Samsung): OFF — tap to turn ON</string>
+    <string name="tv_layout_enabled">TV button layout on — buttons are sent in the order Samsung TVs expect</string>
+    <string name="tv_layout_disabled">TV button layout off — original PocketPad button order</string>
     <string name="action_record_start">Record gamepad input (debug)…</string>
     <string name="action_record_stop">■ Stop recording &amp; show report</string>
     <string name="record_title">Record gamepad input</string>
