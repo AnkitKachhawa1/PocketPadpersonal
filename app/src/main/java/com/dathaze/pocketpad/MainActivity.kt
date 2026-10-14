@@ -244,6 +244,7 @@ class MainActivity : AppCompatActivity(),
         }
         tvNavigation = prefs.getBoolean(PREF_TV_NAV, false)
         padFix = prefs.getBoolean(PREF_PAD_FIX, true)
+        GamepadState.tvLayout = prefs.getBoolean(PREF_TV_LAYOUT, true)
         dpadMode = try {
             DpadMode.valueOf(prefs.getString(PREF_DPAD_MODE, DpadMode.OFF.name)!!)
         } catch (_: IllegalArgumentException) {
@@ -266,6 +267,9 @@ class MainActivity : AppCompatActivity(),
             getString(R.string.action_dpad_stick),
             getString(if (padFix) R.string.action_pad_fix_on else R.string.action_pad_fix_off),
             getString(
+                if (GamepadState.tvLayout) R.string.action_tv_layout_on else R.string.action_tv_layout_off
+            ),
+            getString(
                 if (recorder.isRecording) R.string.action_record_stop else R.string.action_record_start
             ),
             getString(R.string.action_bt_settings),
@@ -285,10 +289,11 @@ class MainActivity : AppCompatActivity(),
                     6 -> toggleTvNavigation()
                     7 -> showDpadModePicker()
                     8 -> togglePadFix()
-                    9 -> toggleRecording()
-                    10 -> startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
-                    11 -> hidManager.disconnect()
-                    12 -> showHelp()
+                    9 -> toggleTvLayout()
+                    10 -> toggleRecording()
+                    11 -> startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+                    12 -> hidManager.disconnect()
+                    13 -> showHelp()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -405,6 +410,17 @@ class MainActivity : AppCompatActivity(),
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun toggleTvLayout() {
+        GamepadState.tvLayout = !GamepadState.tvLayout
+        getPreferences(MODE_PRIVATE).edit().putBoolean(PREF_TV_LAYOUT, GamepadState.tvLayout).apply()
+        Toast.makeText(
+            this,
+            if (GamepadState.tvLayout) R.string.tv_layout_enabled else R.string.tv_layout_disabled,
+            Toast.LENGTH_SHORT
+        ).show()
+        sendMerged()
     }
 
     private fun togglePadFix() {
@@ -930,6 +946,7 @@ class MainActivity : AppCompatActivity(),
         const val PREF_TV_NAV = "tv_navigation"
         const val PREF_DPAD_MODE = "dpad_mode"
         const val PREF_PAD_FIX = "pad_fix_gasia"
+        const val PREF_TV_LAYOUT = "tv_button_layout"
         const val VENDOR_GASIA = 0x0e8f
         // Pad button 1..12 (raw order) -> PocketPad button, from the x360ce preset:
         // 1 Y, 2 B, 3 A, 4 X, 5 LB, 6 RB, 7 LT, 8 RT, 9 Back, 10 Start, 11 L3, 12 R3
